@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>기상청 단기예보 조회</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        background-color: #f8f9fa;
+        padding-top: 30px;
+      }
+      .card {
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+      .table th,
+      .table td {
+        text-align: center;
+        vertical-align: middle;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="row justify-content-center">
+        <div class="col-md-10">
+          <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+              <h5 class="mb-0">🌤️ 기상청 단기예보 조회 (시간별 온도/습도)</h5>
+            </div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label for="regionSelect" class="form-label font-weight-bold">지역 선택</label>
+                  <select id="regionSelect" class="form-select">
+                    <option value="">-- 지역을 선택하세요 --</option>
+                  </select>
+                </div>
+                <div class="col-md-4">
+                  <label for="dateInput" class="form-label">날짜 선택</label>
+                  <input type="date" id="dateInput" class="form-select" />
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                  <button id="searchBtn" class="btn btn-primary w-100">조회하기</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-body">
+              <div class="table-responsive">
+                <table class="table table-striped table-hover table-bordered mb-0">
+                  <thead class="table-dark">
+                    <tr>
+                      <th>예보 날짜</th>
+                      <th>예보 시간</th>
+                      <th>온도 (°C)</th>
+                      <th>습도 (%)</th>
+                    </tr>
+                  </thead>
+                  <tbody id="forecastBody">
+                    <tr>
+                      <td colspan="4" class="text-muted py-4">
+                        지역과 날짜를 선택한 후 조회해 주세요.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <nav class="mt-4">
+                <ul class="pagination justify-content-center" id="pagination"></ul>
+              </nav>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+      // 1. 기상청 기하학적 격자 좌표 데이터 (제공해주신 엑셀 파일 내용을 이 형식으로 확장하시면 됩니다)
+      const localCoordinates = [
+        { name: "서울", nx: 60, ny: 127 },
+        { name: "부산", nx: 98, ny: 76 },
+        { name: "대구", nx: 89, ny: 90 },
+        { name: "인천", nx: 55, ny: 124 },
+        { name: "광주", nx: 58, ny: 74 },
+        { name: "대전", nx: 67, ny: 100 },
+        { name: "울산", nx: 102, ny: 84 },
+        { name: "세종", nx: 66, ny: 103 },
+        { name: "경기(수원)", nx: 60, ny: 121 },
+        { name: "강원(춘천)", nx: 73, ny: 134 },
+        { name: "충북(청주)", nx: 69, ny: 107 },
+        { name: "충남(홍성)", nx: 55, ny: 106 },
+        { name: "전북(전주)", nx: 63, ny: 89 },
+        { name: "전남(무안)", nx: 51, ny: 67 },
+        { name: "경북(안동)", nx: 91, ny: 106 },
+        { name: "경남(창원)", nx: 90, ny: 77 },
+        { name: "제주", nx: 52, ny: 38 },
+      ];
+
+      // API 설정
+      const SERVICE_KEY = "02079729c4f240580955ef73be159271a40e7d1697a6fb6ee65fd5d01ebdc4e0";
+
+      // 페이징 관련 변수
+      let totalProcessedData = []; // 가공된 시간별 {date, time, tmp, reh} 데이터
+      let currentPage = 1;
+      const rowsPerPage = 10;
+
+      // 초기화
+      document.addEventListener("DOMContentLoaded", () => {
+        initRegionSelect();
+        initDefaultDate();
+
+        document.getElementById("searchBtn").addEventListener("click", fetchWeatherData);
+      });
+
+      // 지역 셀렉트박스 로드
+      function initRegionSelect() {
+        const select = document.getElementById("regionSelect");
+        localCoordinates.forEach((loc, index) => {
+          const opt = document.createElement("option");
+          opt.value = index; // 배열 인덱스를 value로 저장
+          opt.textContent = `${loc.name} (X: ${loc.nx}, Y: ${loc.ny})`;
+          select.appendChild(opt);
+        });
+      }
+
+      // 기본 날짜를 오늘로 설정 (YYYY-MM-DD)
+      function initDefaultDate() {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, "0");
+        const dd = String(today.getDate()).padStart(2, "0");
+        document.getElementById("dateInput").value = `${yyyy}-${mm}-${dd}`;
+      }
+
+      // API 데이터 호출
+      async function fetchWeatherData() {
+        const regionIndex = document.getElementById("regionSelect").value;
+        const rawDate = document.getElementById("dateInput").value;
+
+        if (!regionIndex) {
+          alert("지역을 선택해 주세요.");
+          return;
+        }
+        if (!rawDate) {
+          alert("날짜를 선택해 주세요.");
+          return;
+        }
+
+        const region = localCoordinates[regionIndex];
+        const baseDate = rawDate.replace(/-/g, ""); // YYYYMMDD 형식으로 변환
+
+        // 로딩 표시
+        const tbody = document.getElementById("forecastBody");
+        tbody.innerHTML = `<tr><td colspan="4" class="text-primary py-4"><div class="spinner-border spinner-border-sm" role="status"></div> 데이터를 불러오는 중입니다...</td></tr>`;
+
+        // API URL 생성 (제공해주신 URL 기반, 고정 행수 1000개 요청하여 하루 이상의 데이터를 다 긁어옴)
+        const url = `https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst?serviceKey=${SERVICE_KEY}&pageNo=1&numOfRows=1000&dataType=JSON&base_date=${baseDate}&base_time=0500&nx=${region.nx}&ny=${region.ny}`;
+
+        try {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error("네트워크 응답에 문제가 있습니다.");
+
+          const data = await response.json();
+
+          if (data.response.header.resultCode !== "00") {
+            throw new Error(data.response.header.resultMsg || "데이터가 없습니다.");
+          }
+
+          const items = data.response.body.items.item;
+          processWeatherData(items);
+        } catch (error) {
+          console.error(error);
+          tbody.innerHTML = `<tr><td colspan="4" class="text-danger py-4">⚠️ 에러 발생: ${error.message}<br><small>API 키 만료 혹은 정기 점검 시간인지 확인하세요.</small></td></tr>`;
+          document.getElementById("pagination").innerHTML = "";
+        }
+      }
+
+      // 날짜별/시간별로 온도(TMP)와 습도(REH) 조인 가공
+      function processWeatherData(items) {
+        // 시간별로 묶기 위한 임시 맵 map['날짜_시간'] = { tmp, reh }
+        const timeMap = {};
+
+        items.forEach(item => {
+          const key = `${item.fcstDate}_${item.fcstTime}`;
+          if (!timeMap[key]) {
+            timeMap[key] = {
+              date: item.fcstDate,
+              time: item.fcstTime,
+              tmp: "-",
+              reh: "-",
+            };
+          }
+
+          if (item.category === "TMP") {
+            timeMap[key].tmp = item.fcstValue;
+          } else if (item.category === "REH") {
+            timeMap[key].reh = item.fcstValue;
+          }
+        });
+
+        // 객체를 배열로 바꾸고 정렬 (날짜, 시간 순)
+        totalProcessedData = Object.values(timeMap).sort((a, b) => {
+          if (a.date !== b.date) return a.date.localeCompare(b.date);
+          return a.time.localeCompare(b.time);
+        });
+
+        if (totalProcessedData.length === 0) {
+          document.getElementById("forecastBody").innerHTML =
+            `<tr><td colspan="4" class="text-muted py-4">해당 조건의 예보 데이터가 존재하지 않습니다.</td></tr>`;
+          document.getElementById("pagination").innerHTML = "";
+          return;
+        }
+
+        currentPage = 1;
+        displayPage(currentPage);
+      }
+
+      // 특정 페이지 데이터 출력
+      function displayPage(page) {
+        currentPage = page;
+        const tbody = document.getElementById("forecastBody");
+        tbody.innerHTML = "";
+
+        const start = (page - 1) * rowsPerPage;
+        const end = start + rowsPerPage;
+        const pageData = totalProcessedData.slice(start, end);
+
+        pageData.forEach(item => {
+          // YYYYMMDD -> YYYY-MM-DD
+          const formattedDate = `${item.date.substring(0, 4)}-${item.date.substring(4, 6)}-${item.date.substring(6, 8)}`;
+          // HHMM -> HH:MM
+          const formattedTime = `${item.time.substring(0, 2)}:${item.time.substring(2, 4)}`;
+
+          const row = `
+                <tr>
+                    <td>${formattedDate}</td>
+                    <td>${formattedTime}</td>
+                    <td><span class="badge bg-danger">${item.tmp} °C</span></td>
+                    <td><span class="badge bg-info text-dark">${item.reh} %</span></td>
+                </tr>
+            `;
+          tbody.insertAdjacentHTML("beforeend", row);
+        });
+
+        setupPagination();
+      }
+
+      // 하단 페이지네이션 UI 구현
+      function setupPagination() {
+        const paginationUl = document.getElementById("pagination");
+        paginationUl.innerHTML = "";
+
+        const totalPages = Math.ceil(totalProcessedData.length / rowsPerPage);
+        if (totalPages <= 1) return; // 1페이지 이하면 노출 안 함
+
+        // 이전 페이지 버튼
+        const prevLi = document.createElement("li");
+        prevLi.className = `page-item ${currentPage === 1 ? "disabled" : ""}`;
+        prevLi.innerHTML = `<a class="page-link" href="#" aria-label="Previous">&laquo;</a>`;
+        prevLi.addEventListener("click", e => {
+          e.preventDefault();
+          if (currentPage > 1) displayPage(currentPage - 1);
+        });
+        paginationUl.appendChild(prevLi);
+
+        // 페이지 번호 버튼들
+        for (let i = 1; i <= totalPages; i++) {
+          const li = document.createElement("li");
+          li.className = `page-item ${currentPage === i ? "active" : ""}`;
+          li.innerHTML = `<a class="page-link" href="#">${i}</a>`;
+          li.addEventListener("click", e => {
+            e.preventDefault();
+            displayPage(i);
+          });
+          paginationUl.appendChild(li);
+        }
+
+        // 다음 페이지 버튼
+        const nextLi = document.createElement("li");
+        nextLi.className = `page-item ${currentPage === totalPages ? "disabled" : ""}`;
+        nextLi.innerHTML = `<a class="page-link" href="#" aria-label="Next">&raquo;</a>`;
+        nextLi.addEventListener("click", e => {
+          e.preventDefault();
+          if (currentPage < totalPages) displayPage(currentPage + 1);
+        });
+        paginationUl.appendChild(nextLi);
+      }
+    </script>
+  </body>
+</html>
