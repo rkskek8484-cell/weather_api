@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>초단기 예보</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB"
+      crossorigin="anonymous"
+    />
+  </head>
+
+  <body>
+    <div class="container">
+      <h1>초단기 예보</h1>
+      <table class="table table-hover">
+        <thead>
+          <tr>
+            <th scope="col">발표일자</th>
+            <th scope="col">시간</th>
+            <th scope="col">온도</th>
+            <th scope="col">습도</th>
+          </tr>
+        </thead>
+        <tbody id="target">
+          <!-- <tr>
+            <th scope="row">1</th>
+            <td>Mark</td>
+            <td>Otto</td>
+            <td>@mdo</td>
+          </tr> -->
+        </tbody>
+      </table>
+    </div>
+    <script>
+      const target = document.querySelector("#target");
+
+      fetch(
+        "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst?serviceKey=02079729c4f240580955ef73be159271a40e7d1697a6fb6ee65fd5d01ebdc4e0&pageNo=1&numOfRows=1000&dataType=JSON&base_date=20260522&base_time=0500&nx=55&ny=127",
+      )
+        .then(res => {
+          console.log(res);
+          return res.json(); //json -> js object 변환, 다음 then으로 전달
+        })
+        .then(result => {
+          let data = result.response.body.items.item;
+          console.log(data);
+          let t1hArr = data.filter(d => d.category === "TMP"); //온도
+          let rehArr = data.filter(d => d.category === "REH"); //습도
+
+          console.log(t1hArr);
+          console.log(rehArr);
+          let tableData = "";
+          t1hArr.forEach((data, i) => {
+            //데이터가 없으면
+            let rehData = rehArr[i]?.fcstValue || "-";
+
+            tableData += `<tr>
+            <th scope="row">${data.baseDate}</th>
+            <td>${data.fcstTime}</td>
+            <td>${data.fcstValue}</td>
+            <td>${rehData}</td>
+          </tr>`;
+          });
+          target.innerHTML = tableData;
+        });
+    </script>
+  </body>
+</html>
